@@ -1,12 +1,6 @@
-
 # Zepto Data & AI Platform Capstone
 
-This repository contains the end-to-end Zepto Data & AI Platform implementation, which includes three interconnected modules:
-1. `/data_pipeline`: A data engineering pipeline that simulates scraping Zepto raw data, cleans it, and stores it in a relational SQLite database.
-2. `/analytics`: An analytics pipeline (Jupyter Notebook) that profiles the customer dataset end-to-end and builds a Random Forest model to predict delivery times.
-3. `/support_assistant`: A grounded GenAI support assistant using local HuggingFace models to answer policy questions based on Zepto's documents.
-
----
+This repository contains the complete end-to-end implementation for the Zepto Data & Analytics Capstone Project. It is divided into three interconnected modules demonstrating data engineering, advanced analytics, and generative AI.
 
 ## Setup Instructions
 
@@ -17,76 +11,47 @@ To install the dependencies, it is recommended to create a virtual environment, 
 pip install -r requirements.txt
 ```
 
-*(Note: The support assistant requires PyTorch and Transformers, which will download a small language model on its first run.)*
-
-## Docker Support (Recommended)
-
-You can run the entire platform end-to-end inside a Docker container without needing to set up a local Python environment.
-
-1. **Build the image**:
-```bash
-docker build -t zepto-ai-platform .
-```
-2. **Run the container**:
-```bash
-docker run -it zepto-ai-platform
-```
-This will automatically execute the data pipeline, train the ML models, and query the GenAI assistant, printing all the sample results directly to your terminal.
-
 ---
 
-## Module 1: Data Pipeline
+## Module 1: Data Pipeline (`/data_pipeline`)
 
-This module implements the data engineering pipeline that turns raw scraped data into a clean relational store.
+This module implements a complete web scraping and data engineering pipeline. It simulates the extraction of catalogue pricing data before it reaches an analytics dashboard.
 
-### Workflow
-1. **Extraction (Mocking)**: The `pipeline.py` script generates JSON arrays simulating raw, scraped data from Zepto (products, customers, and orders). We intentionally inject **dirty data**, such as negative prices, missing values, and duplicate records, to simulate real-world data engineering challenges.
-2. **Transformation**: The raw JSON files are loaded into Pandas DataFrames. We perform robust data cleaning:
-   - Deduplication of records based on unique IDs.
-   - Anomaly removal (dropping orders with negative total amounts and products with negative prices).
-   - Missing value imputation (filling missing weather data).
-   - Type-casting (converting string dates to proper datetime objects).
-3. **Loading**: The cleaned DataFrames are written into normalized tables (`products`, `customers`, `orders`) inside a local `sqlite3` database (`zepto.db`).
+### Features
+- **Scraping**: Uses `requests` and `BeautifulSoup` to scrape exactly 1,000 books across all 50 pages of the `books.toscrape.com` catalogue.
+- **Cleaning**: Parses numerical ratings (e.g. 'One' to 1), converts availability to boolean, and cleanly handles messy/missing rows.
+- **Transformation**: Converts prices from GBP (£) to INR (₹) using a strict, fixed exchange rate of `105.50`.
+- **Relational Storage**: Stores the cleaned data in a normalized `sqlite3` database (`zepto.db`) using two tables (`books` and `categories`).
+- **Validation**: Executes 5 required SQL aggregate/join queries and validates the results by comparing them directly against equivalent Pandas DataFrame `merge` operations to ensure absolute parity.
 
 ### Execution
-Run the script from the root directory:
+Run the pipeline script from the root directory:
 ```bash
 python data_pipeline/pipeline.py
 ```
-This will create a `raw_data/` folder containing the JSONs, and a `zepto.db` SQLite database file at the root of the project.
-
-### Design Decisions
-- **Decision**: Python script generating JSONs mimicking scraped data, followed by Pandas cleaning and SQLite for the relational store.
-- **Reasoning**: SQLite provides a robust, zero-configuration relational database that is perfect for local end-to-end demonstrations without requiring a separate database server. Pandas allows for vectorized cleaning of the raw JSON arrays.
 
 ---
 
-## Module 2: Analytics Pipeline
+## Module 2: Analytics Pipeline (`/analytics`)
 
-This module implements an end-to-end analyst-to-data-scientist workflow on the classic **Titanic dataset**.
+This module implements an end-to-end analyst-to-data-scientist workflow on the classic **Titanic dataset**, fulfilling all required statistical profiling and machine learning tasks.
 
-### Workflow
-1. **`01_eda.ipynb`**: Loads the dataset via `sns.load_dataset('titanic')`, profiles missing values, performs univariate/bivariate analysis, computes a correlation heatmap, builds a multivariate data story of survival likelihood, and validates a z-score standardization. It saves the cleaned data to `titanic.csv` as an offline fallback.
-2. **`02_modeling.ipynb`**: Reads the offline fallback CSV and continues straight into the predictive modeling pipeline. It implements a strictly separated `ColumnTransformer` (fit on train only), evaluates three classifiers side-by-side, tests SMOTE vs Class Weight balancing, tunes a Random Forest via `GridSearchCV`, and performs a linear regression side-task to predict fares.
+### Features
+- **Exploratory Data Analysis (`01_eda.ipynb`)**: Loads the dataset via Seaborn, profiles missing values, performs univariate/bivariate analysis, computes a correlation heatmap, builds a multivariate data story of survival likelihood, and validates a z-score standardization. It saves the cleaned data to `titanic.csv` as an offline fallback.
+- **Predictive Modeling (`02_modeling.ipynb`)**: Reads the offline fallback CSV and executes a modeling pipeline. It implements a strictly separated `ColumnTransformer` (fit on train only), evaluates three classifiers side-by-side (Logistic Regression, Decision Tree, Random Forest), handles class imbalance via `SMOTE` vs `class_weight`, tunes the Random Forest via `GridSearchCV`, and performs a linear regression side-task to predict fares.
+- **Deployment Artifact**: Saves the full `ColumnTransformer` and best estimator as a single `joblib` artifact.
 
 ### Documentation & Interpretations
 All required written interpretations (missing value strategies, skewness, correlation analysis, data story conclusions, and the final model deployment recommendation) are documented directly inside the module's dedicated README:
 **[View Analytics Documentation](analytics/README.md)**
 
 ### Execution
-Open the Jupyter Notebooks inside the `/analytics` directory and execute all cells sequentially:
-1. `analytics/01_eda.ipynb`
-2. `analytics/02_modeling.ipynb`
-
-### Design Decisions
-- **Decision**: Jupyter Notebook using `scikit-learn` Random Forest Regressor.
-- **Reasoning**: Notebooks provide an excellent format for combining code, visualizations (EDA), and Markdown interpretation. A Random Forest model handles non-linear relationships (like weather impacts) very well for predicting continuous variables like delivery time.
+Open the Jupyter Notebooks inside the `/analytics` directory and execute all cells sequentially.
 
 ---
 
-## Module 3: Support Assistant
+## Module 3: Support Assistant (`/support_assistant`)
 
-This module implements a GenAI support assistant that answers policy questions grounded in Zepto's documents.
 This module implements a complete GenAI Retrieval-Augmented Generation (RAG) service for Zepto's policy corpus, orchestrated via LangGraph and exposed through a FastAPI endpoint.
 
 It features a strict `MOCK_LLM` toggle that allows the pipeline to run completely offline without any API keys, using deterministic mock logic for grading, while preserving the ability to run a live LLM (like Groq) via an environment variable.
@@ -103,30 +68,3 @@ The full architecture breakdown, including the prompt schema and mock transcript
    docker build -t zepto-support .
    docker run -p 7860:7860 zepto-support
    ```
-### Design Decisions
-- **Decision**: `transformers` AutoModelForQuestionAnswering pipeline using `distilbert-base-cased-distilled-squad`.
-- **Reasoning**: The project requires the use of strictly free services. By utilizing a local HuggingFace QA model, we can perform grounded document question-answering on the `zepto_policies.txt` text without relying on paid APIs, adhering strictly to the capstone constraints.
-
----
-
-## Sample Results
-
-Below are sample outputs generated by the analytics and support assistant modules:
-
-### Analytics Pipeline Output
-```text
-Training Random Forest with GridSearchCV...
-Random Forest MAE: 1.70 mins
-Feature Importance (distance_km): 0.39
-Feature Importance (weather_Rain): 0.40
-Feature Importance (weather_Traffic): 0.21
-```
-
-### Support Assistant (RAG) Output
-```text
-Question: What happens if a delivery takes more than 20 minutes?
-Answer: customers are eligible for a 10 % discount on their next order
-
-Question: How much is the Zepto Pass?
-Answer: Rs. 299 per month
-```
