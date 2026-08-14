@@ -18,6 +18,20 @@ pip install -r requirements.txt
 
 *(Note: The support assistant requires PyTorch and Transformers, which will download a small language model on its first run.)*
 
+## Docker Support (Recommended)
+
+You can run the entire platform end-to-end inside a Docker container without needing to set up a local Python environment.
+
+1. **Build the image**:
+```bash
+docker build -t zepto-ai-platform .
+```
+2. **Run the container**:
+```bash
+docker run -it zepto-ai-platform
+```
+This will automatically execute the data pipeline, train the ML models, and query the GenAI assistant, printing all the sample results directly to your terminal.
+
 ---
 
 ## Module 1: Data Pipeline

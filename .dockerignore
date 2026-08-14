@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.env
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+.git
+.gitignore
+.ipynb_checkpoints/
+zepto.db
+data_pipeline/raw_data/
