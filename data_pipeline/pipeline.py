@@ -4,9 +4,13 @@ import pandas as pd
 import sqlite3
 import re
 import os
+import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 
 os.makedirs("data_pipeline/raw_data", exist_ok=True)
-print("Starting to scrape books.toscrape.com for all 1000 books...")
+logging.info("Starting to scrape books.toscrape.com for all 1000 books...")
 
 # 1. Get all category links from the homepage
 home_url = "http://books.toscrape.com/index.html"
@@ -22,10 +26,11 @@ for a in category_list:
 
 all_books = []
 
-# 2. Iterate through every category and handle pagination
-for cat_name, base_cat_url in categories:
-    print(f"Scraping category: {cat_name}...")
+# Helper function to scrape a single category and its pagination
+def scrape_category(cat_data):
+    cat_name, base_cat_url = cat_data
     current_url = base_cat_url
+    cat_books = []
     
     while True:
         resp = requests.get(current_url)
@@ -48,7 +53,7 @@ for cat_name, base_cat_url in categories:
             availability_element = book.find('p', class_='instock availability')
             availability_text = availability_element.text.strip() if availability_element else ""
             
-            all_books.append({
+            cat_books.append({
                 'title': title,
                 'price_gbp': price_gbp_text,
                 'star_rating': star_rating_text,
@@ -56,17 +61,23 @@ for cat_name, base_cat_url in categories:
                 'category': cat_name
             })
             
-        # Check for next page
         next_btn = page_soup.find('li', class_='next')
         if next_btn:
             next_url_part = next_btn.find('a')['href']
-            # current_url is like .../category/books/mystery_3/index.html
-            # next_url_part is like page-2.html
             current_url = current_url.rsplit('/', 1)[0] + '/' + next_url_part
         else:
             break
+            
+    logging.info(f"Finished category: {cat_name} ({len(cat_books)} books)")
+    return cat_books
 
-print(f"Successfully scraped {len(all_books)} books.")
+# 2. Iterate concurrently through every category
+with ThreadPoolExecutor(max_workers=10) as executor:
+    futures = [executor.submit(scrape_category, cat) for cat in categories]
+    for future in as_completed(futures):
+        all_books.extend(future.result())
+
+logging.info(f"Successfully scraped {len(all_books)} books.")
 
 # ----------------- CLEANING -----------------
 print("Cleaning data...")

@@ -7,17 +7,24 @@ import uvicorn
 import chromadb
 from sentence_transformers import SentenceTransformer
 from langgraph.graph import StateGraph, END
+from langgraph.checkpoint.memory import MemorySaver
+from langchain_core.messages import AnyMessage, HumanMessage, AIMessage
 
 # --- Schema & State ---
 class AskRequest(BaseModel):
     query: str
+    session_id: str = "default_session"
 
 class AskResponse(BaseModel):
     answer: str
     sources: List[str]
     confidence: float
 
+import operator
+from typing import Annotated
+
 class GraphState(TypedDict):
+    messages: Annotated[list[AnyMessage], operator.add]
     query: str
     intent: str
     retrieved_docs: List[Dict[str, str]]
@@ -211,14 +218,17 @@ workflow.add_conditional_edges("classify_intent", route_intent)
 workflow.add_edge("retrieve_and_answer", END)
 workflow.add_edge("direct_answer", END)
 
-app_graph = workflow.compile()
+memory = MemorySaver()
+app_graph = workflow.compile(checkpointer=memory)
 
 # --- FastAPI App ---
 app = FastAPI(title="Zepto Support Assistant")
 
 @app.post("/ask", response_model=AskResponse)
 def ask(request: AskRequest):
+    # Pass user message into state
     initial_state = {
+        "messages": [HumanMessage(content=request.query)],
         "query": request.query,
         "intent": "",
         "retrieved_docs": [],
@@ -226,7 +236,12 @@ def ask(request: AskRequest):
         "retries": 0
     }
     
-    result = app_graph.invoke(initial_state)
+    config = {"configurable": {"thread_id": request.session_id}}
+    result = app_graph.invoke(initial_state, config=config)
+    
+    # Store AI response in messages array for next time
+    # Though LangGraph nodes technically should do this, we can just let it persist state.
+    # The Pydantic output is stored in final_response.
     return result["final_response"]
 
 if __name__ == "__main__":
