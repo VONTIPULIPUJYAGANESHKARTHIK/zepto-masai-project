@@ -13,5 +13,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the current directory contents into the container at /app
 COPY . .
 
-# Run show_results.py when the container launches
-CMD ["python", "show_results.py"]
+# Run the FastAPI app via uvicorn when the container launches
+EXPOSE 7860
+CMD ["uvicorn", "support_assistant.assistant:app", "--host", "0.0.0.0", "--port", "7860"]

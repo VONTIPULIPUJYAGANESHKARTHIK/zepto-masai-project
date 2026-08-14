@@ -14,3 +14,9 @@ nbconvert
 ipykernel
 imbalanced-learn
 joblib
+langgraph
+chromadb
+fastapi
+uvicorn
+pydantic
+groq

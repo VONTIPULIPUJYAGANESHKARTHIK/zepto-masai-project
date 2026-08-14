@@ -87,22 +87,22 @@ Open the Jupyter Notebooks inside the `/analytics` directory and execute all cel
 ## Module 3: Support Assistant
 
 This module implements a GenAI support assistant that answers policy questions grounded in Zepto's documents.
+This module implements a complete GenAI Retrieval-Augmented Generation (RAG) service for Zepto's policy corpus, orchestrated via LangGraph and exposed through a FastAPI endpoint.
 
-### Workflow
-This module utilizes a **Retrieval-Augmented Generation (RAG)** architecture using entirely local, free, open-source models (avoiding paid APIs like OpenAI).
+It features a strict `MOCK_LLM` toggle that allows the pipeline to run completely offline without any API keys, using deterministic mock logic for grading, while preserving the ability to run a live LLM (like Groq) via an environment variable.
 
-1. **Knowledge Base**: We defined a mock Zepto policy document (`zepto_policies.txt`) which contains details about delivery guarantees, cancellations, and premium memberships.
-2. **Document Chunking**: The `assistant.py` script loads the policy document and splits it into logical, manageable chunks (paragraphs).
-3. **Semantic Retrieval**: When a user asks a question, we use `sentence-transformers` (`all-MiniLM-L6-v2`) to create vector embeddings of the chunks and the user's question. We calculate cosine similarity to retrieve the single most relevant chunk of context.
-4. **Generation (Question Answering)**: The retrieved chunk is passed alongside the user's question to a local HuggingFace QA model (`distilbert-base-cased-distilled-squad`). The model reads the specific context and extracts the exact answer.
+### Documentation & Architecture
+The full architecture breakdown, including the prompt schema and mock transcripts, is documented directly inside the module's dedicated README:
+**[View Support Assistant Documentation](support_assistant/README.md)**
 
 ### Execution
-Run the CLI assistant script from the root directory:
-```bash
-python support_assistant/assistant.py
-```
-*(Note: The first run will automatically download the language models from HuggingFace).*
-
+1. **Setup**: Run `python support_assistant/ingest.py` to embed the documents and initialize ChromaDB.
+2. **Server**: Run `uvicorn support_assistant.assistant:app --host 0.0.0.0 --port 7860`.
+3. **Docker**: 
+   ```bash
+   docker build -t zepto-support .
+   docker run -p 7860:7860 zepto-support
+   ```
 ### Design Decisions
 - **Decision**: `transformers` AutoModelForQuestionAnswering pipeline using `distilbert-base-cased-distilled-squad`.
 - **Reasoning**: The project requires the use of strictly free services. By utilizing a local HuggingFace QA model, we can perform grounded document question-answering on the `zepto_policies.txt` text without relying on paid APIs, adhering strictly to the capstone constraints.
