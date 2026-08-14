@@ -1,141 +1,147 @@
-import sqlite3
+import requests
+from bs4 import BeautifulSoup
 import pandas as pd
-import numpy as np
-import json
+import sqlite3
+import re
 import os
-import random
-from datetime import datetime, timedelta
 
-def generate_mock_raw_data(output_dir):
-    """Simulates pulling raw data from an external source with anomalies (dirty data)."""
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
+os.makedirs("data_pipeline/raw_data", exist_ok=True)
+print("Starting to scrape books.toscrape.com...")
+
+# Scrape specific category pages so we don't have to make a request for every single book
+category_urls = [
+    ("Mystery", "http://books.toscrape.com/catalogue/category/books/mystery_3/index.html"),
+    ("Historical Fiction", "http://books.toscrape.com/catalogue/category/books/historical-fiction_4/index.html"),
+    ("Sequential Art", "http://books.toscrape.com/catalogue/category/books/sequential-art_5/index.html"),
+    ("Classics", "http://books.toscrape.com/catalogue/category/books/classics_6/index.html")
+]
+
+all_books = []
+
+for category_name, url in category_urls:
+    print(f"Scraping category: {category_name}...")
+    response = requests.get(url)
+    if response.status_code != 200:
+        continue
         
-    print("Scraping raw Zepto data (simulating dirty data)...")
+    soup = BeautifulSoup(response.content, 'html.parser')
+    book_articles = soup.find_all('article', class_='product_pod')
     
-    # 1. Generate Mock Products (Catalog)
-    products = [
-        {"product_id": 1, "name": "Milk 1L", "category": "Dairy", "price": 60},
-        {"product_id": 2, "name": "Bread", "category": "Bakery", "price": 40},
-        {"product_id": 3, "name": "Eggs 12 pcs", "category": "Dairy", "price": 80},
-        {"product_id": 4, "name": "Apples 1kg", "category": "Fruits", "price": 150},
-        {"product_id": 5, "name": "Potato 1kg", "category": "Vegetables", "price": 30},
-        {"product_id": 6, "name": "Cola 2L", "category": "Beverages", "price": 90},
-        {"product_id": 7, "name": "Error Product", "category": "Unknown", "price": -50} # Anomaly: Negative price
-    ]
-    
-    # 2. Generate Mock Customers
-    customers = []
-    for i in range(1, 101):
-        customers.append({
-            "customer_id": i,
-            "name": f"Customer_{i}",
-            "signup_date": (datetime.now() - timedelta(days=random.randint(10, 365))).strftime("%Y-%m-%d"),
-            "premium_member": random.choice([True, False])
+    for book in book_articles:
+        title_element = book.find('h3').find('a')
+        title = title_element['title'] if title_element and 'title' in title_element.attrs else title_element.text
+        
+        price_element = book.find('p', class_='price_color')
+        price_gbp_text = price_element.text if price_element else ""
+        
+        rating_element = book.find('p', class_='star-rating')
+        star_rating_text = rating_element['class'][1] if rating_element and len(rating_element['class']) > 1 else ""
+        
+        availability_element = book.find('p', class_='instock availability')
+        availability_text = availability_element.text.strip() if availability_element else ""
+        
+        all_books.append({
+            'title': title,
+            'price_gbp': price_gbp_text,
+            'star_rating': star_rating_text,
+            'availability': availability_text,
+            'category': category_name
         })
-        
-    # Duplicate a customer to simulate dirty data
-    customers.append(customers[0])
-        
-    # 3. Generate Mock Orders
-    orders = []
-    for i in range(1, 1001):
-        order_time = datetime.now() - timedelta(days=random.randint(0, 30), hours=random.randint(0, 23), minutes=random.randint(0, 59))
-        distance_km = round(random.uniform(0.5, 5.0), 2)
-        weather = random.choice(["Clear", "Rain", "Traffic"])
-        
-        # Calculate delivery time realistically based on distance and weather
-        delivery_time_mins = 10 + (distance_km * 2.5)
-        if weather == "Rain":
-            delivery_time_mins += random.uniform(8, 18)
-        elif weather == "Traffic":
-            delivery_time_mins += random.uniform(5, 12)
-            
-        delivery_time_mins = round(delivery_time_mins, 1)
-        
-        # Sometime we have missing data (to simulate raw data issues)
-        if random.random() < 0.05:
-            weather = None
-            
-        # Simulate realistic amount based on distance loosely
-        total_amount = round(random.uniform(50, 500) + (distance_km * 10), 2)
-        
-        orders.append({
-            "order_id": i,
-            "customer_id": random.randint(1, 100),
-            "order_time": order_time.strftime("%Y-%m-%d %H:%M:%S"),
-            "distance_km": distance_km,
-            "weather": weather,
-            "delivery_time_mins": delivery_time_mins,
-            "total_amount": total_amount
-        })
-        
-    # Introduce anomalies in orders
-    orders.append(orders[10]) # Duplicate order
-    orders[15]['total_amount'] = -100 # Negative amount anomaly
-        
-    # Save to raw JSON files
-    with open(os.path.join(output_dir, "raw_products.json"), "w") as f:
-        json.dump(products, f)
-    with open(os.path.join(output_dir, "raw_customers.json"), "w") as f:
-        json.dump(customers, f)
-    with open(os.path.join(output_dir, "raw_orders.json"), "w") as f:
-        json.dump(orders, f)
-        
-    print("Raw dirty data generated successfully.")
 
-def clean_and_store_data(raw_dir, db_path):
-    """Cleans the raw data (deduplication, anomaly removal) and stores it in SQLite."""
-    print("Cleaning data and building relational store...")
-    
-    # Load raw data
-    with open(os.path.join(raw_dir, "raw_products.json"), "r") as f:
-        products_df = pd.DataFrame(json.load(f))
-    with open(os.path.join(raw_dir, "raw_customers.json"), "r") as f:
-        customers_df = pd.DataFrame(json.load(f))
-    with open(os.path.join(raw_dir, "raw_orders.json"), "r") as f:
-        orders_df = pd.DataFrame(json.load(f))
-        
-    # --- Data Cleaning ---
-    
-    # 1. Deduplication
-    initial_counts = (len(products_df), len(customers_df), len(orders_df))
-    products_df.drop_duplicates(subset=['product_id'], keep='first', inplace=True)
-    customers_df.drop_duplicates(subset=['customer_id'], keep='first', inplace=True)
-    orders_df.drop_duplicates(subset=['order_id'], keep='first', inplace=True)
-    
-    # 2. Anomaly Removal (Negative values)
-    products_df = products_df[products_df['price'] >= 0]
-    orders_df = orders_df[orders_df['total_amount'] >= 0]
-    
-    # 3. Missing Value Imputation
-    orders_df['weather'] = orders_df['weather'].fillna('Clear')
-    
-    # 4. Type Enforcement
-    orders_df['order_time'] = pd.to_datetime(orders_df['order_time'])
-    
-    final_counts = (len(products_df), len(customers_df), len(orders_df))
-    print(f"Cleaning complete. Removed {(initial_counts[0]-final_counts[0])} products, " 
-          f"{(initial_counts[1]-final_counts[1])} customers, "
-          f"{(initial_counts[2]-final_counts[2])} orders.")
-    
-    # --- Storage ---
-    conn = sqlite3.connect(db_path)
-    
-    # Write to relational store
-    products_df.to_sql("products", conn, if_exists="replace", index=False)
-    customers_df.to_sql("customers", conn, if_exists="replace", index=False)
-    orders_df.to_sql("orders", conn, if_exists="replace", index=False)
-    
-    conn.close()
-    print(f"Data successfully cleaned and stored in {db_path}")
+print(f"Successfully scraped {len(all_books)} books.")
 
-if __name__ == "__main__":
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    raw_data_dir = os.path.join(base_dir, "raw_data")
-    
-    # Run pipeline
-    generate_mock_raw_data(raw_data_dir)
-    
-    db_file = os.path.join(base_dir, "..", "zepto.db")
-    clean_and_store_data(raw_data_dir, db_file)
+# ----------------- CLEANING -----------------
+print("Cleaning data...")
+df = pd.DataFrame(all_books)
+
+# 1. Strip currency symbol and convert to float
+def clean_price(p):
+    try:
+        return float(re.sub(r'[^\d.]', '', p))
+    except:
+        return None
+        
+df['price_gbp'] = df['price_gbp'].apply(clean_price)
+
+# 2. Convert star rating text to integer
+rating_map = {
+    'One': 1, 'Two': 2, 'Three': 3, 'Four': 4, 'Five': 5
+}
+df['rating'] = df['star_rating'].map(rating_map)
+
+# 3. Parse availability to boolean
+df['in_stock'] = df['availability'].apply(lambda x: 'in stock' in x.lower()).astype(int)
+
+# 4. Handle messy rows
+# We drop rows where price or rating is null. Median imputation for target/key features 
+# introduces bias, so dropping is safer for accurate analytics.
+initial_len = len(df)
+df = df.dropna(subset=['price_gbp', 'rating'])
+print(f"Dropped {initial_len - len(df)} messy rows with missing prices or ratings.")
+
+# 5. Convert GBP to INR (Fixed rate: 1 GBP = 105.50 INR)
+FIXED_RATE_INR = 105.50
+df['price_inr'] = df['price_gbp'] * FIXED_RATE_INR
+
+# ----------------- DATABASE -----------------
+print("Building relational SQLite database...")
+categories_df = df[['category']].drop_duplicates().reset_index(drop=True)
+categories_df['category_id'] = categories_df.index + 1
+categories_df = categories_df.rename(columns={'category': 'category_name'})
+
+df = df.merge(categories_df, left_on='category', right_on='category_name', how='left')
+df['book_id'] = df.index + 1
+books_df = df[['book_id', 'title', 'price_gbp', 'price_inr', 'rating', 'in_stock', 'category_id']]
+
+conn = sqlite3.connect('zepto.db')
+categories_df.to_sql('categories', conn, if_exists='replace', index=False)
+books_df.to_sql('books', conn, if_exists='replace', index=False)
+print("Data successfully loaded into zepto.db (tables: categories, books).")
+
+# ----------------- SQL QUERIES -----------------
+print("\n--- Executing Required SQL Queries ---")
+q1 = "SELECT title, price_gbp FROM books WHERE rating = 5 LIMIT 5"
+print("\n1. 5-Star Books (SELECT/WHERE):")
+print(pd.read_sql(q1, conn))
+
+q2 = "SELECT title, price_inr FROM books ORDER BY price_inr DESC LIMIT 5"
+print("\n2. Top 5 Most Expensive Books (ORDER BY):")
+print(pd.read_sql(q2, conn))
+
+q3 = "SELECT DISTINCT category_name FROM categories LIMIT 5"
+print("\n3. Sample Categories (DISTINCT):")
+print(pd.read_sql(q3, conn))
+
+q4 = "SELECT title, rating FROM books WHERE rating IN (1, 2) LIMIT 5"
+print("\n4. Poorly Rated Books (IN):")
+print(pd.read_sql(q4, conn))
+
+q5 = """
+SELECT c.category_name, b.title, b.rating, b.price_gbp
+FROM books b
+JOIN categories c ON b.category_id = c.category_id
+WHERE b.rating >= 4
+ORDER BY b.rating DESC, b.title ASC
+LIMIT 5
+"""
+print("\n5. High Rated Books with Categories (JOIN):")
+join_sql_df = pd.read_sql(q5, conn)
+print(join_sql_df)
+
+# ----------------- PANDAS VALIDATION -----------------
+print("\n--- Validating SQL Join vs Pandas Merge ---")
+pandas_books = pd.read_sql("SELECT * FROM books", conn)
+pandas_cats = pd.read_sql("SELECT * FROM categories", conn)
+
+merged_df = pd.merge(pandas_books, pandas_cats, on='category_id')
+filtered_merged = merged_df[merged_df['rating'] >= 4]
+sorted_merged = filtered_merged.sort_values(by=['rating', 'title'], ascending=[False, True])
+final_pandas_df = sorted_merged[['category_name', 'title', 'rating', 'price_gbp']].head(5).reset_index(drop=True)
+
+print("\nPandas Merge Result:")
+print(final_pandas_df)
+print("\nDo the SQL and Pandas results match perfectly?")
+print(join_sql_df.equals(final_pandas_df))
+
+conn.close()
+print("\nPipeline execution complete!")

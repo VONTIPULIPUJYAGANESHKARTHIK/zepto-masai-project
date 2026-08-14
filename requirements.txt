@@ -8,3 +8,7 @@ jupyter
 transformers
 torch
 sentence-transformers
+requests
+beautifulsoup4
+nbconvert
+ipykernel
