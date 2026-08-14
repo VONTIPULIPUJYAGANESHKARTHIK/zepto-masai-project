@@ -12,3 +12,5 @@ requests
 beautifulsoup4
 nbconvert
 ipykernel
+imbalanced-learn
+joblib
