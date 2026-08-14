@@ -1,0 +1,5 @@
+*.db
+*.sqlite3
+__pycache__/
+.ipynb_checkpoints/
+data_pipeline/raw_data/

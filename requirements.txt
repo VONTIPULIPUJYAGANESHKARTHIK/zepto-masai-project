@@ -1,6 +1,9 @@
 # Dependencies for Zepto Data & AI Platform
 pandas
+numpy
 scikit-learn
 matplotlib
 seaborn
 jupyter
+transformers
+torch
