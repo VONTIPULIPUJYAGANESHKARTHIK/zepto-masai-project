@@ -1,6 +1,7 @@
 import os
 import numpy as np
-from transformers import pipeline
+from transformers import AutoTokenizer, AutoModelForQuestionAnswering
+import torch
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 
@@ -13,7 +14,7 @@ def load_and_chunk_policies(filepath):
     chunks = [chunk.strip() for chunk in content.split('\n\n') if chunk.strip()]
     return chunks
 
-def get_answer_rag(question, chunks, embedder, qa_pipeline):
+def get_answer_rag(question, chunks, embedder, tokenizer, model):
     """Retrieves the most relevant chunk and generates an answer (True RAG)."""
     # 1. Retrieval
     # Embed the chunks and the question
@@ -31,8 +32,16 @@ def get_answer_rag(question, chunks, embedder, qa_pipeline):
         return "I'm sorry, I couldn't find an answer to that in the policy documents."
     
     # 2. Generation (QA based on the retrieved context)
-    result = qa_pipeline(question=question, context=best_chunk)
-    return result['answer']
+    inputs = tokenizer(question, best_chunk, return_tensors="pt")
+    with torch.no_grad():
+        outputs = model(**inputs)
+    
+    answer_start_index = outputs.start_logits.argmax()
+    answer_end_index = outputs.end_logits.argmax()
+    
+    predict_answer_tokens = inputs.input_ids[0, answer_start_index : answer_end_index + 1]
+    answer = tokenizer.decode(predict_answer_tokens, skip_special_tokens=True)
+    return answer
 
 if __name__ == "__main__":
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -42,7 +51,9 @@ if __name__ == "__main__":
     # Load sentence transformer for semantic retrieval
     embedder = SentenceTransformer('all-MiniLM-L6-v2')
     # Load QA pipeline for generation
-    qa_pipeline = pipeline("question-answering", model="distilbert-base-cased-distilled-squad")
+    model_name = "distilbert-base-cased-distilled-squad"
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForQuestionAnswering.from_pretrained(model_name)
     
     chunks = load_and_chunk_policies(policy_path)
     
@@ -59,7 +70,7 @@ if __name__ == "__main__":
             if not user_input.strip():
                 continue
                 
-            answer = get_answer_rag(user_input, chunks, embedder, qa_pipeline)
+            answer = get_answer_rag(user_input, chunks, embedder, tokenizer, model)
             print(f"Zepto Assistant: {answer}\n")
             
         except KeyboardInterrupt:
